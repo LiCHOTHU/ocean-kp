@@ -65,7 +65,7 @@ class Mlp(PyTorchModule):
             fc = nn.Linear(in_size, next_size)
             in_size = next_size
             hidden_init(fc.weight)
-            fc.bias.data.fill_(b_init_value)
+            # fc.bias.data.fill_(b_init_value)
             self.__setattr__("fc{}".format(i), fc)
             self.fcs.append(fc)
 
@@ -75,18 +75,11 @@ class Mlp(PyTorchModule):
                 self.layer_norms.append(ln)
 
         self.last_fc = nn.Linear(in_size, output_size)
-        self.last_fc.weight.data.uniform_(-init_w, init_w)
-        self.last_fc.bias.data.uniform_(-init_w, init_w)
+        # self.last_fc.weight.data.uniform_(-init_w, init_w)
+        # self.last_fc.bias.data.uniform_(-init_w, init_w)
 
     def forward(self, input, return_preactivations=False):
         h = input
-        # for i in self.parameters():
-        #     print (i.device)
-        # print (input.device)
-        # print (len(self.fcs))
-        # for fc in self.fcs:
-        #     print (fc.weight.device)
-        # exit(-1)
         for i, fc in enumerate(self.fcs):
             h = fc(h)
             if self.layer_norm and i < len(self.fcs) - 1:

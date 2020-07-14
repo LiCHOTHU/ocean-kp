@@ -38,7 +38,12 @@ class InPlacePathSampler(object):
         paths = []
         n_steps_total = 0
         n_trajs = 0
+
+
+        print("[Debug] !!!!!!!!!!!")
+        max_samples = 10
         while n_steps_total < max_samples and n_trajs < max_trajs:
+            print(f'[Doing] #### n_step_totals: {n_steps_total} --> max_samples: {max_samples} &&&& n_trajs: {n_trajs} --> max_trajs: {max_trajs} ####')
             path = rollout(
                 self.env, policy, max_path_length=self.max_path_length, \
                 accum_context=accum_context, animated=animated, \

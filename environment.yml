@@ -1,4 +1,4 @@
-name: pearl
+name: ocean
 channels:
   - pytorch
   - kne
@@ -29,6 +29,7 @@ dependencies:
   - jpeg=9b=habf39ab_1
   - libffi=3.2.1=h4deb6c0_3
   - libgcc=7.2.0=h69d50b8_2
+  -
   - libgcc-ng=8.2.0=hdf63c60_1
   - libgfortran-ng=7.3.0=hdf63c60_0
   - libiconv=1.14=0

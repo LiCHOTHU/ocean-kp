@@ -29,6 +29,7 @@ class SimpleReplayBuffer(ReplayBuffer):
 
     def add_sample(self, observation, action, reward, terminal,
                    next_observation, **kwargs):
+
         self._observations[self._top] = zero_padding(observation, self._max_episode_len)
         self._actions[self._top] = zero_padding(action, self._max_episode_len)
         self._rewards[self._top] = zero_padding(reward, self._max_episode_len)

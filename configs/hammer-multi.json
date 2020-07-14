@@ -1,0 +1,51 @@
+{
+    "env_name": "multi-hammer-env",
+    "log_name": "sawyer-hammer",
+    "n_train_tasks": 4,
+    "n_eval_tasks": 2,
+    "num_key": 8,
+    "env_params": {
+        "n_tasks": 12,
+        "num_kp": 8
+    }
+    ,
+    "dataset_params": {
+        "dataset_root": "/h/lichothu/hammers/renders/",
+        "consecutive_frames_only": false,
+        "first_frame_only": true,
+        "train_task_ids": null,
+        "val_task_ids": null,
+        "train_task_ids_start": 0,
+        "train_task_ids_end": 100,
+        "val_task_ids_start": 0,
+        "val_task_ids_end": 100,
+        "set_scale_from_mesh": true,
+        "num_points": 500
+    },
+    "gnn_params": {
+        "num_features": 3,
+        "num_classes": 3,
+        "nhid": 128,
+        "pooling_ratio": 0.7,
+        "dropout_ratio": 0.7
+    },
+
+
+    "algo_params": {
+        "num_initial_steps": 2100,
+        "num_tasks_sample": 10,
+        "meta_batch": 10,
+        "num_steps_prior": 400,
+        "num_steps_posterior": 0,
+        "num_extra_rl_steps_posterior": 600,
+        "num_train_steps_per_itr": 4000,
+        "max_path_length": 500,
+        "num_iterations": 2000,
+        "num_evals": 1,
+        "num_steps_per_eval": 2000,
+        "num_exp_traj_eval": 1,
+        "embedding_batch_size": 256,
+        "embedding_mini_batch_size": 256,
+        "replay_buffer_size": 300
+    }
+}

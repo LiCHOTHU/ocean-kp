@@ -55,9 +55,9 @@ WORKDIR /mujoco_py
 # Copy over just requirements.txt at first. That way, the Docker cache doesn't
 # expire until we actually change the requirements.
 COPY ./requirements.txt /mujoco_py/
-COPY ./requirements.dev.txt /mujoco_py/
+# COPY ./requirements.dev.txt /mujoco_py/
 RUN pip install -r requirements.txt
-RUN pip install -r requirements.dev.txt
+# RUN pip install -r requirements.dev.txt
 RUN pip install cloudpickle==0.5.2
 RUN pip install cached-property==1.3.1
 # For atari-py
@@ -68,6 +68,7 @@ RUN pip install gtimer==1.0.0b5
 RUN pip install pygame
 RUN pip install awscli==1.11.179
 RUN pip install boto3==1.4.8
+RUN pip install dominate==2.3.1
 RUN pip install dominate==2.3.1
 RUN pip install ray==0.2.2
 RUN pip install path.py==10.3.1

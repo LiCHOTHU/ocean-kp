@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="e4b7bad5-a34a-45ef-9b30-36d76398afbd" name="vector:v" url="http://v.vectorinstitute.ai">
+        <fileTransfer host="v.vectorinstitute.ai" port="22" rootFolder="/h/lichothu" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

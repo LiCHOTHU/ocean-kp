@@ -45,14 +45,12 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
     frames = []
     print("[Start] #### Path Sampling #### max_path_length: ", max_path_length)
 
-
     print("[Debug] !!!!!!!!!")
     max_path_length = 4
     while path_length < max_path_length:
         print("[Doing] #### Path Sampling #### path_length: ", path_length)
-        agent_o = agent.get_agent_obs(o, env)
-
-        a, agent_info = agent.get_action(agent_o)
+        agent_o = agent.get_obs_np(o)
+        a, agent_info = agent.get_action(o, env._active_task)
         next_o, r, d, env_info = env.step(a)
 
         # update the agent's current context
@@ -64,17 +62,17 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
             # import pdb
             # pdb.set_trace()
             if rnn_sample == 'full':
-                agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o.squeeze().detach().cpu().numpy(), a, [r]]), axis=0)), resample=True)
+                agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o, a, [r]]), axis=0)), resample=True)
             elif rnn_sample == 'full_wo_sampling':
                 if path_length % temp_res == (temp_res - 1):
-                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o.squeeze().detach().cpu().numpy(), a, [r]]), axis=0)), resample=True)
+                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o, a, [r]]), axis=0)), resample=True)
                 else:
-                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o.squeeze().detach().cpu().numpy(), a, [r]]), axis=0)), resample=False)
+                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o, a, [r]]), axis=0)), resample=False)
             elif rnn_sample == 'single_sampling':
                 if path_length % temp_res == (temp_res - 1):
                     # import pdb; pdb.set_trace()
 
-                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o.squeeze().detach().cpu().numpy(), a, [r]]), axis=0)), resample=True)
+                    agent.infer_step_posterior(ptu.FloatTensor(np.expand_dims(np.concatenate([agent_o, a, [r]]), axis=0)), resample=True)
             elif rnn_sample == 'batch_sampling':
                 batch_contexts.append(np.concatenate([agent_o.detach().cpu().numpy(), a, [r]]))
                 if path_length % temp_res == (temp_res - 1):
@@ -104,23 +102,30 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
     if len(actions.shape) == 1:
         actions = np.expand_dims(actions, 1)
 
-    observations = torch.cat(observations, dim = 0)
-    next_agent_o = agent.get_agent_obs(next_o, env)
-    next_observations = torch.cat((observations[1:,:], next_agent_o))
+    observations = np.array(observations)
+    next_agent_o = agent.get_obs_np(next_o)
+
+    next_observations = np.vstack(
+        (
+            observations[1:, :],
+            np.expand_dims(next_agent_o, 0)
+        )
+    )
+
     if recurrent:
         contexts = np.array(contexts)
     else:
         contexts = None
 
     ## better stores tensor instead of numpy, need to modify env buffer
-    observations_np = observations.detach().cpu().numpy()
-    next_observations_np = next_observations.detach().cpu().numpy()
+    # observations_np = observations.detach().cpu().numpy()
+    # next_observations_np = next_observations.detach().cpu().numpy()
 
     return dict(
-        observations=observations_np,
+        observations=observations,
         actions=actions,
         rewards=np.array(rewards).reshape(-1, 1),
-        next_observations=next_observations_np,
+        next_observations=next_observations,
         terminals=np.array(terminals).reshape(-1, 1),
         agent_infos=agent_infos,
         env_infos=env_infos,

@@ -170,12 +170,20 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
         '''
         meta-training loop
         '''
+
         self.pretrain()
         params = self.get_epoch_snapshot(-1)
         logger.save_itr_params(-1, params)
         gt.reset()
         gt.set_def_unique(False)
         self._current_path_builder = PathBuilder()
+
+        for idx in self.train_tasks:
+            self.task_idx = idx
+            self.env.reset_task(idx)
+            self.agent.collect_kp(self.env, idx)
+
+        print("[Finish] #### Collecting keypoints for each task ####")
 
         # at each iteration, we first collect data from tasks, perform meta-updates, then try to evaluate
         for it_ in gt.timed_for(
@@ -192,18 +200,16 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
                 for idx in self.train_tasks:
                     self.task_idx = idx
                     self.env.reset_task(idx)
-
                     print("[Start] #### Collecting path for task #### task_id: ", self.task_idx)
                     self.collect_data(self.num_initial_steps, 1, np.inf) # collect from prior
+
+
                 print("[Finish] #### Collecting initial pool of data for train and eval ####")
             # Sample data from train tasks.
             # for i in range(self.num_tasks_sample):
             # s2 = time.time()
             # print ('initial collection takes %s' % (s2 - s1))
             # print (self.agent.n_infer, self.agent.n_global, self.agent.n_local)
-
-            print("[Debug] !!!!!!!!!!!")
-            self.num_tasks_sample = 2
 
             for idx in random.sample(range(len(self.train_tasks)), self.num_tasks_sample):
                 # idx = np.random.randint(len(self.train_tasks)) #! this should be commented, fixed on 12/21/2019
@@ -226,7 +232,10 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
             # s3 = time.time()
             # print ('collection takes %s' % (s3 - s2))
             # print (self.agent.n_infer, self.agent.n_global, self.agent.n_local)
+
+
             for train_step in range(self.num_train_steps_per_itr):
+                print(f'[Doing] #### Training Step #### train_step: {train_step} -> {self.num_train_steps_per_itr}')
                 indices = np.random.choice(self.train_tasks, self.meta_batch) #! if train_tasks <= meta_batch, it will sample repeated tasks.
                 self._do_training(indices)
                 # self._n_train_steps_total += 1
@@ -268,12 +277,8 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
         '''
         # start from the prior
         self.agent.clear_z()
-
         num_transitions = 0
-        print("[Debug] !!!!!!!!")
-        num_samples = 10
         print("[Start] #### Sample Collection #### total number: ", num_samples)
-
 
         while num_transitions < num_samples:
             print("[Start] #### Sample Collection transitions #### current transitions: ", num_transitions)
@@ -290,8 +295,6 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
             if add_to_enc_buffer:
                 self.enc_replay_buffer.add_paths(self.task_idx, paths)
             if update_posterior_rate != np.inf and self.glob:
-                # import pdb
-                # pdb.set_trace()
                 context = self.prepare_context(self.task_idx)
                 self.agent.infer_posterior(context)
         self._n_env_steps_total += num_transitions
@@ -301,6 +304,8 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
 
     def _try_to_eval(self, epoch, eval_all=False, eval_train_offline=True, animated=False):
         logger.save_extra_data(self.get_extra_data_to_save(epoch))
+        print("[Evaluating] #### #### epoch: ", epoch)
+
         if self._can_evaluate():
             self.evaluate(epoch, eval_all, eval_train_offline, animated)
 
@@ -443,9 +448,9 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
                 sparse_rewards = np.stack(e['sparse_reward'] for e in p['env_infos']).reshape(-1, 1)
                 p['rewards'] = sparse_rewards
 
-        goal = self.env._goal
-        for path in paths:
-            path['goal'] = goal # goal
+        # goal = self.env._goal
+        # for path in paths:
+        #    path['goal'] = goal # goal
         if animated:
             for i in range(len(paths)):
                 video_writer = imageio.get_writer(os.path.join(logger.get_snapshot_dir(), 'task{}-epoch{}-run{}.mp4'.format(idx, epoch, i)), fps=20)
@@ -461,10 +466,12 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
     def _do_eval(self, indices, epoch, animated=False):
         final_returns, final_sucs = [], []
         online_returns, online_sucs = [], []
+
         for idx in indices:
             all_rets, all_sucs = [], []
             for r in range(self.num_evals):
-                paths = self.collect_paths(idx, epoch, r, animated)
+                # set animation is True
+                paths = self.collect_paths(idx, epoch, r, True)
                 all_rets.append([eval_util.get_average_returns([p]) for p in paths])
                 all_sucs.append([eval_util.get_average_sucs([p]) for p in paths])
             final_returns.append(np.mean([a[-1] for a in all_rets]))
@@ -487,12 +494,12 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
         # pdb.set_trace()
         if self.eval_statistics is None:
             self.eval_statistics = OrderedDict()
-
         ### sample trajectories from prior for debugging / visualization
         if self.dump_eval_paths:
             # 100 arbitrarily chosen for visualizations of point_robot trajectories
             # just want stochasticity of z, not the policy
             self.agent.clear_z()
+
             prior_paths, _ = self.sampler.obtain_samples(deterministic=self.eval_deterministic, max_samples=self.max_path_length * 20,
                                                         accum_context=False,
                                                         resample=1, animated=animated,
@@ -526,7 +533,6 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
                                                             resample=np.inf,
                                                             glob=self.glob)
                     paths += p
-
                 if self.sparse_rewards:
                     for p in paths:
                         sparse_rewards = np.stack(e['sparse_reward'] for e in p['env_infos']).reshape(-1, 1)
@@ -597,6 +603,8 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
 
         if self.plotter:
             self.plotter.draw()
+
+        print("[Finishing] #### Evaluating ####")
 
     @abc.abstractmethod
     def training_mode(self, mode):

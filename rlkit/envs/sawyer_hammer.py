@@ -152,9 +152,13 @@ class SawyerHammerEnv(SawyerXYZEnv):
             space_low = (-10, -10, -10)
             space_high = (10, 10, 10)
 
+            quat_low = (-10, -10 , -10, -10)
+            quat_high = (10, 10, 10, 10)
+
             self.observation_space = Box(
-                np.hstack((space_low, space_low, space_low, space_low,space_low)),
-                np.hstack((space_high, space_high, space_high, space_high, space_high))
+                np.hstack((space_low, quat_low, space_low, quat_low,space_low)),
+                np.hstack((space_high, quat_high, space_high, quat_high, space_high)),
+                dtype=np.float32
             )
 
             # represent as above

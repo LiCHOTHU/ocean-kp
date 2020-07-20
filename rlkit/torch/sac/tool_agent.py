@@ -97,6 +97,7 @@ class PEARLAgent(nn.Module):
                  context_encoder,
                  context_encoder2,
                  recurrent_context_encoder,
+                 n_train_tasks,
                  global_latent,
                  vrnn_latent,
                  policy,
@@ -120,8 +121,11 @@ class PEARLAgent(nn.Module):
             self.r_cont_dim, self.r_n_cat, self.r_cat_dim, self.r_n_dir, self.r_dir_dim = read_dim(vrnn_latent)
         # print (latent_dim, num_cat, cont_latent_dim, dir_latent_dim, self.num_dir)
 
+        self.n_train_tasks = n_train_tasks
         self.KeyNet = KeyNet
         self.GNN = GNN
+        self.kp_list = [None for _ in range(self.n_train_tasks)]
+        self.tasks_z_list = [None for _ in range(self.n_train_tasks)]
         # self.kp_criterion = kp_criterion
 
         self.context_encoder = context_encoder
@@ -471,7 +475,7 @@ class PEARLAgent(nn.Module):
         # else:
         #     self.z = self.z_means
 
-    def get_kp_obs(self, env):
+    def collect_kp(self, env, idx):
         data = env.get_kp_data()
         img_fr, choose_fr, cloud_fr, r_fr, t_fr, img_to, choose_to, cloud_to, r_to, t_to, mesh, faces, anchor, scale, cate, geodesic, curvature, depth_fr, mesh_orig, state_fr, quadric = data
         anchor = torch.Tensor([[[0., 0.6, 0.02]]]).to() / scale
@@ -507,10 +511,14 @@ class PEARLAgent(nn.Module):
         Kp = (gt_Kp_fr + gt_Kp_to) / 2
         out, kp_select, perm, edge_index = self.GNN(Kp, 0)
 
-        return kp_select
+        ## [TODO]: remamber to do a permutation here, might be helpful
 
-    def get_agent_obs(self, obs, env):
-        kp = self.get_kp_obs(env)
+        self.kp_list[idx] = kp_select
+        self.tasks_z_list[idx] = out
+
+
+    def get_kp_obs(self, obs, task_id):
+        kp = self.kp_list[task_id]
         curr_t = obs['curr_hammer_pos']
         curr_quat = obs['curr_hammer_quat']
 
@@ -531,15 +539,29 @@ class PEARLAgent(nn.Module):
         return agent_o.type(torch.cuda.FloatTensor)
 
 
+    def get_obs_np(self, obs):
+        init_hammer_pos = obs['init_hammer_pos']
+        init_hammer_quat = obs['init_hammer_quat']
+        curr_hammer_pos = obs['curr_hammer_pos']
+        curr_hammer_quat = obs['curr_hammer_quat']
+        curr_gripper_pos = obs['curr_gripper_pos']
+
+        return np.hstack((init_hammer_pos, init_hammer_quat, curr_hammer_pos, curr_hammer_quat, curr_gripper_pos))
+
+
     def get_action(self, obs, deterministic=False):
+        task_id = obs['task_id']
+        kp_o = self.get_kp_obs(obs, task_id)
+        z = self.tasks_z_list[task_id]
+
         ''' sample action from the policy, conditioned on the task embedding '''
-        z, seq_z = ptu.FloatTensor(), ptu.FloatTensor()
+        seq_z = ptu.FloatTensor()
         if self.glob:
             z = self.z
         if self.recurrent:
             seq_z = self.seq_z
 
-        in_ = torch.cat([obs, z, seq_z], dim=1)
+        in_ = torch.cat([kp_o, z, seq_z], dim=1)
         # if self.recurrent:
         #     in_ = torch.cat([obs, z, seq_z], dim=1)
         # else:
@@ -550,7 +572,7 @@ class PEARLAgent(nn.Module):
     def set_num_steps_total(self, n):
         self.policy.set_num_steps_total(n)
 
-    def forward(self, obs, context, trajectories, indices_in_trajs, do_inference, compute_for_next, is_next):
+    def forward(self, obs, context, trajectories, indices_in_trajs, indices, do_inference, compute_for_next, is_next):
         ''' given context, get statistics under the current policy of a set of observations '''
         t, b, _ = obs.size()
         obs = obs.view(t * b, -1)
@@ -587,7 +609,14 @@ class PEARLAgent(nn.Module):
         # run policy, get log probs and new actions
         # import pdb
         # pdb.set_trace()
+
+
+        task_z_pick = torch.stack([self.tasks_z_list[i] for i in indices], dim = 0)
+        task_z_pick = task_z_pick.repeat(1, b, 1)
+        task_z = task_z_pick.view(t * b, -1)
+
         in_ = torch.cat([obs, task_z.detach(), seq_z.detach()], dim=1)
+
         policy_outputs = self.policy(in_, reparameterize=True,
                                      return_log_prob=True)  # !! add flag, we donot need reparameterize for discrete action space, check
 
@@ -602,12 +631,13 @@ class PEARLAgent(nn.Module):
             z_mean = ptu.get_numpy(self.z_means[0])
             for i in range(len(z_mean)):
                 eval_statistics['Z mean disc eval %d' % i] = z_mean[i]
+        '''
         if self.cont_latent_dim > 0:
             z_mean = np.mean(np.abs(ptu.get_numpy(self.z_c_means[0])))
             z_sig = np.mean(ptu.get_numpy(self.z_c_vars[0]))
             eval_statistics['Z mean cont eval'] = z_mean
             eval_statistics['Z variance cont eval'] = z_sig
-
+        '''
     @property
     def networks(self):
         network_list = []

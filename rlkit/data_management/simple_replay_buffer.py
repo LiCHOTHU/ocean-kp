@@ -70,6 +70,7 @@ class SimpleReplayBuffer(ReplayBuffer):
         else:
             trajectories = np.zeros((len(indices), 1)) #! placeholder, shape should be [traj_batch_size or len(traj_indices), obs_dim + action_dim + rew_dim]
             indices_in_traj = np.zeros((len(indices), 1)) # shape should be [traj batch size, batch size//traj batch size]
+
         return dict(
             observations=self._observations.reshape(self._max_replay_buffer_size * self._max_episode_len, -1)[indices],
             actions=self._actions.reshape(self._max_replay_buffer_size * self._max_episode_len, -1)[indices],

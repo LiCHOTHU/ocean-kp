@@ -45,12 +45,14 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
     frames = []
     print("[Start] #### Path Sampling #### max_path_length: ", max_path_length)
 
-    print("[Debug] !!!!!!!!!")
-    max_path_length = 4
+
     while path_length < max_path_length:
         print("[Doing] #### Path Sampling #### path_length: ", path_length)
         agent_o = agent.get_obs_np(o)
-        a, agent_info = agent.get_action(o, env._active_task)
+
+        # import pdb; pdb.set_trace()
+
+        a, agent_info = agent.get_action(o)
         next_o, r, d, env_info = env.step(a)
 
         # update the agent's current context
@@ -94,7 +96,7 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
             break
         o = next_o
         if animated:
-            img = env.sim.render(height=512, width=512, camera_name='topview')[::-1]
+            img = env.sim.render(height=512, width=512, camera_name='camera_front')[::-1]
             frames.append(img)
             # env.render()
 

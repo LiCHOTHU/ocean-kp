@@ -18,7 +18,7 @@ import pickle
 import base64
 import errno
 import torch
-
+from configs.default import default_config
 from rlkit.core.tabulate import tabulate
 
 
@@ -47,7 +47,7 @@ _text_fds = {}
 _tabular_fds = {}
 _tabular_header_written = set()
 
-_snapshot_dir = None
+_snapshot_dir = '/checkpoint/lichothu/$SLURM_JOB_ID/'
 _snapshot_mode = 'all'
 _snapshot_gap = 1
 
@@ -168,6 +168,9 @@ def save_extra_data(data, path='extra_data', ext='.pkl'):
 
     :param data: Something pickle'able.
     """
+
+    print("[Saving] #### Save extra data #### at: ", _snapshot_dir)
+
     file_name = osp.join(_snapshot_dir, path + ext)
     with open(file_name, 'wb') as f:
         pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -258,6 +261,8 @@ def save_weights(weights, names):
 def save_itr_params(itr, params_dict):
     ''' snapshot model parameters '''
     # NOTE: assumes dict is ordered, should fix someday
+
+    print("[Saving] #### Save network state at #### : ", _snapshot_dir)
     names = params_dict.keys()
     params = params_dict.values()
     if _snapshot_dir:

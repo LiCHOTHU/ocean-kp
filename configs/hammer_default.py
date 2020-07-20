@@ -1,7 +1,11 @@
 # default PEARL experiment settings
 # all experiments should modify these settings only as needed
 default_config = dict(
+    wandb_name= 'multi-hammer-20',
+    log_file = '/checkpoint/lichothu/$SLURM_JOB_ID',
     env_name='cheetah-dir',
+    resume_kp = '/h/lichothu/sandbox/pymesh_sbox/root/762779/model_latest.pth',
+    resume_gnn = '/h/lichothu/sandbox/pymesh_sbox/root/762779/gnn_model.pth',
     n_train_tasks=2,
     n_eval_tasks=2,
     latent_size=5, # dimension of the latent context vector
@@ -35,15 +39,15 @@ default_config = dict(
 
     algo_params=dict(
         meta_batch=16, # number of tasks to average the gradient across
-        num_iterations=500, # number of data sampling / training iterates
+        num_iterations=100, # number of data sampling / training iterates
         num_initial_steps=2000, # number of transitions collected per task before training
         num_tasks_sample=5, # number of randomly sampled tasks to collect data for each iteration
         num_steps_prior=400, # number of transitions to collect per task with z ~ prior
         num_steps_posterior=0, # number of transitions to collect per task with z ~ posterior
         num_extra_rl_steps_posterior=400, # number of additional transitions to collect per task with z ~ posterior that are only used to train the policy and NOT the encoder
-        num_train_steps_per_itr=2000, # number of meta-gradient steps taken per iteration
+        num_train_steps_per_itr=400, # number of meta-gradient steps taken per iteration
         num_evals=1, # number of independent evals
-        num_steps_per_eval=600,  # nuumber of transitions to eval on
+        num_steps_per_eval=100,  # nuumber of transitions to eval on
         batch_size=256, # number of transitions in the RL batch
         embedding_batch_size=64, # number of transitions in the context batch
         embedding_mini_batch_size=64, # number of context transitions to backprop through (should equal the arg above except in the recurrent encoder case)

@@ -8,6 +8,7 @@ import numpy as np
 import click
 import json
 import torch
+import wandb
 
 from rlkit.envs import ENVS
 from rlkit.envs.wrappers import NormalizedBoxEnv
@@ -53,6 +54,9 @@ def gpu_optimizer(optimizer):
 def experiment(variant):
 
     # create information for the dataset
+    print('initializing wandb...')
+    wandb.init(project="6pack", resume=True, name=variant['wandb_name'])
+    print(f'initialized wandb, resume={wandb.run.resumed}')
 
     print(variant['dataset_params'])
     dataset = Dataset(**variant['dataset_params'])
@@ -74,7 +78,6 @@ def experiment(variant):
         print(variant['env_name'])
         print(variant['env_params'])
 
-
         env = NormalizedBoxEnv(ENVS[variant['env_name']](**variant['env_params']))
 
     env.set_kp_data(dataset)
@@ -88,6 +91,10 @@ def experiment(variant):
 
     # instantiate networks
     cont_latent_dim, num_cat, latent_dim, num_dir, dir_latent_dim = read_dim(variant['global_latent'])
+
+    global_latent_dim = 3
+    cont_latent_dim = global_latent_dim
+
     r_cont_dim, r_n_cat, r_cat_dim, r_n_dir, r_dir_dim = read_dim(variant['vrnn_latent'])
     # latent_dim = variant['latent_size']
     # num_cat = variant['num_cat']
@@ -98,15 +105,20 @@ def experiment(variant):
     rnn = variant['rnn']
     vrnn_latent = variant['vrnn_latent']
     encoder_model = MlpEncoder # VRNNEncoder #RecurrentEncoder # if recurrent else MlpEncoder #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+
+    ## TODO: For recurrent model, it does not take the keypoint observation since it only represent the stage of the training
+
     if recurrent:
         if variant['vrnn_constraint'] == 'logitnormal':
             output_size = r_cont_dim * 2 + r_n_cat * r_cat_dim + r_n_dir * r_dir_dim * 2
         else:
             output_size = r_cont_dim * 2 + r_n_cat * r_cat_dim + r_n_dir * r_dir_dim
         if variant['rnn_sample'] == 'batch_sampling':
-            input_size = (obs_dim + action_dim + reward_dim) * variant['temp_res']
+            input_size = (2 + obs_dim + action_dim + reward_dim) * variant['temp_res']
         else:
-            input_size = (obs_dim + action_dim + reward_dim)
+            input_size = (2 + obs_dim + action_dim + reward_dim)
         if rnn == 'rnn':
             recurrent_model = RecurrentEncoder
             recurrent_context_encoder = recurrent_model(
@@ -166,6 +178,12 @@ def experiment(variant):
     gnn_model = GNN(variant['gnn_params'])
 
 
+    if variant['resume_kp'] != '':
+        kp_model.load_state_dict(torch.load(variant['resume_kp']))
+
+    if variant['resume_gnn'] != '':
+        gnn_model.load_state_dict(torch.load(variant['resume_gnn']))
+
     qf1 = FlattenMlp(
         hidden_sizes=[net_size, net_size, net_size],
         input_size=obs_dim + action_dim + latent_dim*num_cat + cont_latent_dim + dir_latent_dim*num_dir \
@@ -190,6 +208,7 @@ def experiment(variant):
                         + r_n_cat * r_cat_dim + r_cont_dim + r_n_dir * r_dir_dim,
         output_size=1,
     )
+
     #!! add if here
     policy = TanhGaussianPolicy(
         hidden_sizes=[net_size, net_size, net_size],
@@ -205,11 +224,13 @@ def experiment(variant):
         # cont_latent_dim,
         # dir_latent_dim,
         # num_dir,
+
         kp_model,
         gnn_model,
         context_encoder,
         context_encoder2,
         recurrent_context_encoder,
+        variant['n_train_tasks'],
         variant['global_latent'],
         variant['vrnn_latent'],
         policy,
@@ -256,6 +277,8 @@ def experiment(variant):
         rnn_sample=variant['rnn_sample'],
         **variant['algo_params']
     )
+
+
 
     # optionally load pre-trained weights
     if variant['path_to_weights'] is not None:
@@ -391,7 +414,7 @@ def deep_update_dict(fr, to):
 @click.option('--path_to_weights', default=None)
 @click.option('--recurrent', is_flag=True, default=False)
 @click.option('--vrnn_latent', default='2.0.0.2.4', help='gaus-dim.num-cat.cat-dim.num-dir.dir-dim')
-@click.option('--global_latent', default='2.0.0.2.4', help='gaus-dim.num-cat.cat-dim.num-dir.dir-dim')
+@click.option('--global_latent', default='0.0.0.0.0', help='gaus-dim.num-cat.cat-dim.num-dir.dir-dim')
 @click.option('--rnn', default='rnn', help='rnn or vrnn or None')
 @click.option('--traj_batch_size', default=16)
 @click.option('--vrnn_constraint', default='dirichlet', help="logitnormal or dirichlet")
@@ -410,6 +433,11 @@ def main(config, gpu, docker, debug, seed, kl_anneal, temperature, logdir, kl_la
             vrnn_alpha, vrnn_var, temp_res, rnn_sample, resample_in_traj):
     cont_latent_size, num_cat, latent_size, num_dir, dir_latent_size = read_dim(global_latent)
     glob = latent_size * num_cat + cont_latent_size + dir_latent_size * num_dir > 0
+
+    glob = False
+    # define glob by ourselves
+
+
     if resample_in_traj:
         assert glob
     assert kl_anneal in ['none', 'mono', 'cycle']

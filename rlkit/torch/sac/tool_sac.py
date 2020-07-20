@@ -9,6 +9,8 @@ import math
 import rlkit.torch.pytorch_util as ptu
 from rlkit.core.eval_util import create_stats_ordered_dict
 from rlkit.core.tool_rl_algorithm import MetaRLAlgorithm
+from pytorch3d.transforms import quaternion_invert, quaternion_apply
+import wandb
 
 import os
 
@@ -61,6 +63,8 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
             temp_res=1,
             rnn_sample=None,
+            kp_lr = 0.00001,
+            gnn_lr = 0.00002,
             **kwargs
     ):
         super().__init__(
@@ -81,6 +85,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
         self.temp_res = temp_res
         self.rnn_sample = rnn_sample
+        self.loss_dict = {}
 
         self.glob = glob
         self.recurrent = recurrent
@@ -108,6 +113,17 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
             self.qf2.parameters(),
             lr=qf_lr,
         )
+
+        self.kp_optimizer = optimizer_class(
+            self.agent.KeyNet.parameters(),
+            lr = kp_lr,
+        )
+
+        self.gnn_optimizer = optimizer_class(
+            self.agent.GNN.parameters(),
+            lr = gnn_lr,
+        )
+
         if self.glob:
             self.context_optimizer = optimizer_class(
                 self.agent.context_encoder.parameters(),
@@ -176,6 +192,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                 r = batch['sparse_rewards'][None, ...]
             else:
                 r = batch['rewards'][None, ...]
+
             traj = batch['trajectories'][None, ...]
             indices_in_traj = batch['indices_in_traj'][None, ...]
             no = batch['next_observations'][None, ...]
@@ -223,8 +240,10 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
         # zero out context and hidden encoder state
         self.agent.clear_z(num_tasks=len(indices), batch_size=self.batch_size, traj_batch_size=self.traj_batch_size)
+        self.zero_grad_kp_gnn()
 
         for i in range(num_updates):
+            print(f'[Doing] #### Trainig Updates #### step: {i} -> {num_updates}')
             mini_batch = [x[:, i * mb_size: i * mb_size + mb_size, :] for x in batch]
             obs_enc, act_enc, rewards_enc, _, _, _, _ = mini_batch
             if self.glob:
@@ -235,10 +254,51 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
             # stop backprop
             self.agent.detach_z()
+        self.update_kp_z(self.env)
+
+    def update_kp_z(self, env):
+        self.kp_optimizer.step()
+        self.gnn_optimizer.step()
+
+        for idx in self.train_tasks:
+            env.reset_task(idx)
+            self.agent.collect_kp(env, idx)
+
+        self.kp_optimizer.zero_grad()
+        self.gnn_optimizer.zero_grad()
+
+
+
+    def zero_grad_kp_gnn(self):
+        self.kp_optimizer.zero_grad()
+        self.gnn_optimizer.zero_grad()
 
     def _update_target_network(self):
         ptu.soft_update_from_to(self.qf1, self.target_qf1, self.soft_target_tau)
         ptu.soft_update_from_to(self.qf2, self.target_qf2, self.soft_target_tau)
+
+    def track_kp(self, obs, kp):
+        curr_t = obs[:, :, 7:10]
+        curr_quat = obs[:, :, 10:14]
+        gripper_pos = obs[:, :, 14:17]
+
+
+        num_idx, num_key, key_dim = kp.shape
+        _, bs, _ = obs.shape
+
+        q = curr_quat.unsqueeze(2).repeat(1, 1, num_key, 1)
+        t = curr_t.unsqueeze(2).repeat(1, 1, num_key, 1)
+        kp = kp.unsqueeze(1).repeat(1, bs, 1, 1)
+
+        kp = quaternion_apply(q, kp)
+        kp = kp + t
+
+        kp = kp.contiguous().view(num_idx, bs, -1)
+
+        kp_obs = torch.cat((kp, gripper_pos), dim = 2)
+
+        return kp_obs
+
 
     def _take_step(self, indices, context):
         num_tasks = len(indices)
@@ -247,16 +307,22 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
         # data is (task, batch, feat)
         obs, actions, rewards, next_obs, terms, trajectories, indices_in_trajs = self.sample_data(indices)
+        kp = torch.stack([self.agent.kp_list[i] for i in indices], dim=0)
+
+        # self.track_traj(trajectories, kp, indices_in_trajs)
+
         indices_in_trajs = indices_in_trajs.long()
+
         '''!
         add extra return for smaple_data
         extra argument for sampler
         achieve extra trajectory
         extra argument for forward of agent
         '''
+        kp_obs = self.track_kp(obs, kp)
 
         # run inference in networks
-        policy_outputs, task_z, seq_z = self.agent(obs, context, trajectories, indices_in_trajs, do_inference=True,
+        policy_outputs, task_z, seq_z = self.agent(kp_obs, context, trajectories, indices_in_trajs, indices, do_inference=True,
                                                    compute_for_next=True, is_next=False)
         new_actions, policy_mean, policy_log_std, log_pi = policy_outputs[:4]
 
@@ -271,8 +337,8 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
             alpha_loss = 0
 
         # flattens out the task dimension
-        t, b, _ = obs.size()
-        obs = obs.view(t * b, -1)
+        t, b, _ = kp_obs.size()
+        kp_obs = kp_obs.view(t * b, -1)
         actions = actions.view(t * b, -1)
 
         # Q and V networks
@@ -280,8 +346,8 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         '''!
         concat task_z with recurrent z if recurrent else orginal task_z
         '''
-        q1_pred = self.qf1(obs, actions, torch.cat([task_z, seq_z], dim=-1))
-        q2_pred = self.qf2(obs, actions, torch.cat([task_z, seq_z], dim=-1))
+        q1_pred = self.qf1(kp_obs, actions, torch.cat([task_z, seq_z], dim=-1))
+        q2_pred = self.qf2(kp_obs, actions, torch.cat([task_z, seq_z], dim=-1))
 
         if os.environ['DEBUG'] != '0':
             self.context_optimizer.zero_grad()
@@ -368,25 +434,29 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         rewards_flat = rewards_flat * self.reward_scale
         terms_flat = terms.view(self.batch_size * num_tasks, -1)
 
+        next_kp_obs = self.track_kp(next_obs, kp)
         # calculate q target
-        next_policy_outputs, _, seq_z_next = self.agent(next_obs, context, trajectories, indices_in_trajs,
+        next_policy_outputs, _, seq_z_next = self.agent(next_kp_obs, context, trajectories, indices_in_trajs, indices,
                                                         do_inference=False, compute_for_next=False, is_next=True)
         new_next_actions, _, _, new_log_pi = next_policy_outputs[:4]
-        next_obs = next_obs.view(t * b, -1)
+        next_kp_obs = next_kp_obs.view(t * b, -1)
+
         target_q_values = torch.min(
-            self.target_qf1(next_obs, new_next_actions, torch.cat([task_z, seq_z_next], dim=-1)),
-            self.target_qf2(next_obs, new_next_actions, torch.cat([task_z, seq_z_next], dim=-1)),
+            self.target_qf1(next_kp_obs, new_next_actions, torch.cat([task_z, seq_z_next], dim=-1)),
+            self.target_qf2(next_kp_obs, new_next_actions, torch.cat([task_z, seq_z_next], dim=-1)),
         ) - alpha * new_log_pi
         q_target = rewards_flat + (1. - terms_flat) * self.discount * target_q_values
         qf1_loss = self.qf_criterion(q1_pred, q_target.detach())
         qf2_loss = self.qf_criterion(q2_pred, q_target.detach())
 
         # compute min Q on the new actions
-        q1_policy = self.qf1(obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
-        q2_policy = self.qf2(obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
+        q1_policy = self.qf1(kp_obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
+        q2_policy = self.qf2(kp_obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
 
         q_new_actions = torch.min(q1_policy, q2_policy)
         policy_loss = (alpha * log_pi - q_new_actions).mean()
+
+        policy_loss.backward()
 
         self.qf1_optimizer.zero_grad()
         qf1_loss.backward(retain_graph=True)
@@ -400,8 +470,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
             self.recurrent_context_optimizer.step()
         self.policy_optimizer.zero_grad()
 
-        import pdb; pdb.set_trace()
-        policy_loss.backward()
+
         self.policy_optimizer.step()
         self._update_target_network()
 
@@ -416,10 +485,13 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                     for i in range(len(z_mean)):
                         self.eval_statistics['Z mean disc train %d' % i] = z_mean[i]
                 if self.agent.cont_latent_dim > 0:
-                    z_mean = np.mean(np.abs(ptu.get_numpy(self.agent.z_c_means[0])))
-                    z_sig = np.mean(ptu.get_numpy(self.agent.z_c_vars[0]))
-                    self.eval_statistics['Z mean cont train'] = z_mean
-                    self.eval_statistics['Z variance cont train'] = z_sig
+                    task_z = self.agent.tasks_z_list
+                    task_z_np = [ptu.get_numpy(z) for z in task_z]
+                    self.eval_statistics['Z tasks'] = task_z_np
+                    # z_mean = np.mean(np.abs(ptu.get_numpy(self.agent.z_c_means[0])))
+                    # z_sig = np.mean(ptu.get_numpy(self.agent.z_c_vars[0]))
+                    # self.eval_statistics['Z mean cont train'] = z_mean
+                    # self.eval_statistics['Z variance cont train'] = z_sig
                 if self.agent.dir_latent_dim > 0 and self.agent.constraint == 'logitnormal':
                     z_mean = np.mean(np.abs(ptu.get_numpy(self.agent.z_d_means[0])))
                     z_sig = np.mean(ptu.get_numpy(self.agent.z_d_vars[0]))
@@ -468,6 +540,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                 self.eval_statistics['Alpha Loss'] = alpha_loss.item()
         self._n_train_steps_total += 1
 
+
     def get_epoch_snapshot(self, epoch):
         # NOTE: overriding parent method which also optionally saves the env
         snapshot = OrderedDict(
@@ -476,6 +549,8 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
             policy=self.agent.policy.state_dict(),
             target_qf1=self.target_qf1.state_dict(),
             target_qf2=self.target_qf2.state_dict(),
+            key_net = self.agent.KeyNet.state_dict(),
+            gnn = self.agent.GNN.state_dict()
             # policy_optimizer=self.policy_optimizer.state_dict(),
             # qf1_optimizer=self.qf1_optimizer.state_dict(),
             # qf2_optimizer=self.qf2_optimizer.state_dict(),

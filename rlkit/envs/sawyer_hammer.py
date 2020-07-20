@@ -321,11 +321,18 @@ class SawyerHammerEnv(SawyerXYZEnv):
             # self.sim.model.body_pos[self.model.body_name2id('screw')] = screw_pos
             # self._state_goal = self.sim.model.site_pos[self.model.site_name2id('goal')] + self.sim.model.body_pos[self.model.body_name2id('box')]
         if self.random_hammer_zrot:
-            euler_angle = np.array([0.,0.,np.random.rand()*2*np.pi])
+            euler_angle = np.array([np.pi/2,np.pi,np.random.rand()*2*np.pi])
             quat = euler2quat(euler_angle)
             self._set_hammer_xyz_quat(self.hammer_init_pos, quat)
         else:
             self._set_hammer_xyz(self.hammer_init_pos)
+
+        if True:
+            euler_angle = np.array([np.pi/2,np.pi/2,0])
+            quat = euler2quat(euler_angle)
+            self._set_hammer_xyz_quat(self.hammer_init_pos, quat)
+
+
         # self._set_obj_xyz(self.obj_init_qpos)
         # self.obj_init_pos = self.data.site_xpos[self.model.site_name2id('screwHead')]
         self.obj_init_pos = self.sim.model.site_pos[self.model.site_name2id('screwHead')] + self.sim.model.body_pos[self.model.body_name2id('screw')]
@@ -335,6 +342,10 @@ class SawyerHammerEnv(SawyerXYZEnv):
         idx_hammerbody =  self.sim.model.body_name2id('hammer')
         self.hammer_init_quat = self.sim.data.body_xquat[idx_hammerbody].copy()
         self.hammer_init_pos = self.sim.data.body_xpos[idx_hammerbody].copy()
+
+        print(self.hammer_init_quat)
+        print(self.hammer_init_pos)
+        print("reset")
 
         self.curr_path_length = 0
         #Can try changing this

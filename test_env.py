@@ -6,7 +6,7 @@ import os
 variant = {
                     'obs_type': 'rgbd',
                     'assets_path': '/h/lichothu/hammers/assets/',
-                    'task_id': 0,
+                    'task_id': 4,
                     'num_kp': 8,
                     'random_hammer_zrot': True,
                     'rotMode': 'rotz'
@@ -19,7 +19,7 @@ video_writer = imageio.get_writer(('/checkpoint/lichothu/test.mp4'), fps=20)
 for i_episode in range(1):
     observation = env.reset()
     for t in range(1000):
-        img = env.sim.render(height=512, width=512, camera_name='camera_front')[::-1]
+        img = env.sim.render(height=512, width=512, camera_name='camera_grasp')[::-1]
         frames.append(img)
         video_writer.append_data(img)
         # env.render()

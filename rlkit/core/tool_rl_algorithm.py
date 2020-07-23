@@ -280,6 +280,9 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
         num_transitions = 0
         print("[Start] #### Sample Collection #### total number: ", num_samples)
 
+        # print("[Debug]")
+        # num_samples = 2
+
         while num_transitions < num_samples:
             print("[Start] #### Sample Collection transitions #### current transitions: ", num_transitions)
             paths, n_samples = self.sampler.obtain_samples(max_samples=num_samples - num_transitions,
@@ -471,7 +474,9 @@ class MetaRLAlgorithm(metaclass=abc.ABCMeta):
             all_rets, all_sucs = [], []
             for r in range(self.num_evals):
                 # set animation is True
-                paths = self.collect_paths(idx, epoch, r, True)
+                if epoch % 20 == 0:
+                    animated = True
+                paths = self.collect_paths(idx, epoch, r, animated)
                 all_rets.append([eval_util.get_average_returns([p]) for p in paths])
                 all_sucs.append([eval_util.get_average_sucs([p]) for p in paths])
             final_returns.append(np.mean([a[-1] for a in all_rets]))

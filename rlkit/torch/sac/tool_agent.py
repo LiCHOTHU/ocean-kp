@@ -512,6 +512,7 @@ class PEARLAgent(nn.Module):
         out, kp_select, perm, edge_index = self.GNN(Kp, 0)
 
         ## [TODO]: remamber to do a permutation here, might be helpful
+        # import pdb; pdb.set_trace()
 
         self.kp_list[idx] = kp_select
         self.tasks_z_list[idx] = out
@@ -578,6 +579,13 @@ class PEARLAgent(nn.Module):
         obs = obs.view(t * b, -1)
 
         task_z, seq_z = ptu.FloatTensor(), ptu.FloatTensor()
+
+        # print("--------Inside inference network")
+        # start = torch.cuda.Event(enable_timing=True)
+        # end = torch.cuda.Event(enable_timing=True)
+
+        # start.record()
+
         # self.n_infer += 1
         if do_inference:
             if self.recurrent:
@@ -601,6 +609,10 @@ class PEARLAgent(nn.Module):
             task_z = self.z
             task_z = [z.repeat(b, 1) for z in task_z]
             task_z = torch.cat(task_z, dim=0)
+
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("do inference for z_seq: ", start.elapsed_time(end))
         # import pdb
         # pdb.set_trace()
         # task_z = task_z.unsqueeze(1).expand(t, b, task_z.size(-1))
@@ -610,7 +622,7 @@ class PEARLAgent(nn.Module):
         # import pdb
         # pdb.set_trace()
 
-
+        # start.record()
         task_z_pick = torch.stack([self.tasks_z_list[i] for i in indices], dim = 0)
         task_z_pick = task_z_pick.repeat(1, b, 1)
         task_z = task_z_pick.view(t * b, -1)
@@ -619,6 +631,11 @@ class PEARLAgent(nn.Module):
 
         policy_outputs = self.policy(in_, reparameterize=True,
                                      return_log_prob=True)  # !! add flag, we donot need reparameterize for discrete action space, check
+
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("policy network forward: ", start.elapsed_time(end))
+        # print("--------Outside inference network")
 
         return policy_outputs, task_z, seq_z
 

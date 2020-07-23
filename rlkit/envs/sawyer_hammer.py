@@ -343,9 +343,6 @@ class SawyerHammerEnv(SawyerXYZEnv):
         self.hammer_init_quat = self.sim.data.body_xquat[idx_hammerbody].copy()
         self.hammer_init_pos = self.sim.data.body_xpos[idx_hammerbody].copy()
 
-        print(self.hammer_init_quat)
-        print(self.hammer_init_pos)
-        print("reset")
 
         self.curr_path_length = 0
         #Can try changing this

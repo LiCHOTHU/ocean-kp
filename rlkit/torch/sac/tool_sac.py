@@ -243,7 +243,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         self.zero_grad_kp_gnn()
 
         for i in range(num_updates):
-            print(f'[Doing] #### Trainig Updates #### step: {i} -> {num_updates}')
+            # print(f'[Doing] #### Trainig Updates #### step: {i} -> {num_updates}')
             mini_batch = [x[:, i * mb_size: i * mb_size + mb_size, :] for x in batch]
             obs_enc, act_enc, rewards_enc, _, _, _, _ = mini_batch
             if self.glob:
@@ -301,9 +301,16 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
 
     def _take_step(self, indices, context):
+
         num_tasks = len(indices)
 
         torch.autograd.set_detect_anomaly(True)
+
+        # print("[Debug]")
+        # start = torch.cuda.Event(enable_timing=True)
+        # end = torch.cuda.Event(enable_timing=True)
+
+        # start.record()
 
         # data is (task, batch, feat)
         obs, actions, rewards, next_obs, terms, trajectories, indices_in_trajs = self.sample_data(indices)
@@ -313,6 +320,10 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
 
         indices_in_trajs = indices_in_trajs.long()
 
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("data sample time: ", start.elapsed_time(end))
+
         '''!
         add extra return for smaple_data
         extra argument for sampler
@@ -321,10 +332,15 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         '''
         kp_obs = self.track_kp(obs, kp)
 
+        # start.record()
         # run inference in networks
         policy_outputs, task_z, seq_z = self.agent(kp_obs, context, trajectories, indices_in_trajs, indices, do_inference=True,
                                                    compute_for_next=True, is_next=False)
         new_actions, policy_mean, policy_log_std, log_pi = policy_outputs[:4]
+
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("inference network time: ", start.elapsed_time(end))
 
         if self.use_automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
@@ -346,8 +362,15 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         '''!
         concat task_z with recurrent z if recurrent else orginal task_z
         '''
+
+        # start.record()
         q1_pred = self.qf1(kp_obs, actions, torch.cat([task_z, seq_z], dim=-1))
         q2_pred = self.qf2(kp_obs, actions, torch.cat([task_z, seq_z], dim=-1))
+
+
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("q1 q2 predicting time: ", start.elapsed_time(end))
 
         if os.environ['DEBUG'] != '0':
             self.context_optimizer.zero_grad()
@@ -391,6 +414,7 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                 self.eval_statistics['KL Loss'] = ptu.get_numpy(kl_loss)
             return
 
+        # start.record()
         # KL constraint on z if probabilistic
         if self.glob:
             self.context_optimizer.zero_grad()
@@ -428,6 +452,12 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                 ptu.plot_grad_flow(self.agent.context_encoder.named_parameters(), 'log-test/', 'encoder-before', 4)
             kl_loss.backward(retain_graph=True)
 
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("inference z_seq time: ", start.elapsed_time(end))
+
+
+        # start.record()
         # qf and encoder update (note encoder does not get grads from policy)
         rewards_flat = rewards.view(self.batch_size * num_tasks, -1)
         # scale rewards for Bellman update
@@ -446,9 +476,16 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
             self.target_qf2(next_kp_obs, new_next_actions, torch.cat([task_z, seq_z_next], dim=-1)),
         ) - alpha * new_log_pi
         q_target = rewards_flat + (1. - terms_flat) * self.discount * target_q_values
+
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("inference target_q time: ", start.elapsed_time(end))
+
+
         qf1_loss = self.qf_criterion(q1_pred, q_target.detach())
         qf2_loss = self.qf_criterion(q2_pred, q_target.detach())
 
+        # start.record()
         # compute min Q on the new actions
         q1_policy = self.qf1(kp_obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
         q2_policy = self.qf2(kp_obs, new_actions, torch.cat([task_z.detach(), seq_z_next.detach()], dim=-1))
@@ -456,22 +493,41 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
         q_new_actions = torch.min(q1_policy, q2_policy)
         policy_loss = (alpha * log_pi - q_new_actions).mean()
 
+        self.policy_optimizer.zero_grad()
         policy_loss.backward()
+        self.policy_optimizer.step()
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("backward policy loss time: ", start.elapsed_time(end))
 
+
+
+        # print("--------inside actor critic ")
+        # start.record()
         self.qf1_optimizer.zero_grad()
         qf1_loss.backward(retain_graph=True)
         self.qf1_optimizer.step()
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("qf1 time: ", start.elapsed_time(end))
+
+
         self.qf2_optimizer.zero_grad()
         qf2_loss.backward(retain_graph=True)
         self.qf2_optimizer.step()
+
+
         if self.glob:
             self.context_optimizer.step()
         if self.recurrent:
             self.recurrent_context_optimizer.step()
-        self.policy_optimizer.zero_grad()
 
 
-        self.policy_optimizer.step()
+        # end.record()
+        # torch.cuda.synchronize()
+        # print("actor-critic loss backward time: ", start.elapsed_time(end))
+
+
         self._update_target_network()
 
         # save some statistics for eval
@@ -539,6 +595,8 @@ class PEARLSoftActorCritic(MetaRLAlgorithm):
                 self.eval_statistics['Alpha'] = alpha.item()
                 self.eval_statistics['Alpha Loss'] = alpha_loss.item()
         self._n_train_steps_total += 1
+
+
 
 
     def get_epoch_snapshot(self, epoch):

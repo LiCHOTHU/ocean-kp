@@ -1,6 +1,6 @@
 {
     "env_name": "multi-hammer-env",
-    "log_name": "sawyer-hammer",
+    "log_name": "sawyer-hammer-15",
     "n_train_tasks": 15,
     "n_eval_tasks": 3,
     "num_key": 8,

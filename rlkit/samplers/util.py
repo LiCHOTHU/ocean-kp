@@ -43,11 +43,15 @@ def rollout(env, agent, max_path_length=np.inf, accum_context=True, resample_z=F
         if rnn_sample == 'batch_sampling':
             batch_contexts = []
     frames = []
-    print("[Start] #### Path Sampling #### max_path_length: ", max_path_length)
+    # print("[Start] #### Path Sampling #### max_path_length: ", max_path_length)
+
+    # print("[Debug]")
+    # max_path_length = 2
+
 
 
     while path_length < max_path_length:
-        print("[Doing] #### Path Sampling #### path_length: ", path_length)
+        # print("[Doing] #### Path Sampling #### path_length: ", path_length)
         agent_o = agent.get_obs_np(o)
 
         # import pdb; pdb.set_trace()

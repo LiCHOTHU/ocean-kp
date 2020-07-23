@@ -1,7 +1,7 @@
 # default PEARL experiment settings
 # all experiments should modify these settings only as needed
 default_config = dict(
-    wandb_name= 'multi-hammer-20',
+    wandb_name= 'multi-hammer-tuning-15',
     log_file = '/checkpoint/lichothu/$SLURM_JOB_ID',
     env_name='cheetah-dir',
     resume_kp = '/h/lichothu/sandbox/pymesh_sbox/root/762779/model_latest.pth',

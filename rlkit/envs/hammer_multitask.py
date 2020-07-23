@@ -39,7 +39,10 @@ class MultiTaskEnv(gym.Env):
 
         self.task_env_cls = task_env_cls
         self._active_task = 0
-        self._active_env = task_env_cls(*self.task_args[0], **self.task_kwargs[0])
+
+        # init all the env here
+        self.envs = [task_env_cls(*self.task_args[i], **self.task_kwargs[i]) for i in range(n_tasks)]
+        self._active_env = self.envs[0]
         self.np_random = np.random # used by atari wrappers
         #self._task_envs = [
             #task_env_cls(*t_args, **t_kwargs)
@@ -125,7 +128,7 @@ class MultiTaskEnv(gym.Env):
         self._active_env.close()
         del self._active_env
         self._active_task = task
-        self._active_env = self.task_env_cls(*self.task_args[task], **self.task_kwargs[task])
+        self._active_env = self.envs[task]
 
     def log_diagnostics(self, paths, prefix):
         pass
